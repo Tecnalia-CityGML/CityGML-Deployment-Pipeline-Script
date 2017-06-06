@@ -1,0 +1,208 @@
+pipeline {
+    agent any 
+	
+	environment { 
+        srs = '25830'
+		commitid = 'citymodeltestinganddeployment'
+		body = ''
+		citygml = ''	
+    }
+
+    stages {
+        stage('COMMIT STAGE') { 
+			environment { 
+                validateXML = ''
+				validateXSD = ''
+				validateGeometryFirstLast = ''
+				validateTwoConsecutiveNotEqual = ''
+				validateCodeType = ''
+				citygmlStadistics = ''
+            }
+            steps { 
+				script {
+					git url: 'https://github.com/Tecnalia-CityGML/CityGML-Deployment-Pipeline.git'
+					citygml = readFile('citymodeltestinganddeployment.xml')
+					body = cambiarCaracteresRaros(citygml)
+					body = "param1=" + body
+					
+					//Syntactic validation - Validate XML - TEST
+					echo 'Syntactic validation - Validate XML - TEST'
+					validateXML = hacerhttprequest('http://3dcity-test.tecnalia.com/TecnaliaTesting/rest/Servicios/CityGMLValidateXML',body)
+					
+					//Syntactic validation - Validate XSD - TEST
+					echo 'Syntactic validation - Validate XSD - TEST'
+					validateXSD = hacerhttprequest('http://3dcity-test.tecnalia.com/TecnaliaTesting/rest/Servicios/CityGMLValidateXSD',body)
+					
+					//Syntactic validation - Validate Geometry - First and Last Equal - TEST
+					echo 'Syntactic validation - Validate Geometry - First and Last Equal - TEST'
+					validateGeometryFirstLast = hacerhttprequest('http://3dcity-test.tecnalia.com/TecnaliaTesting/rest/Servicios/ValidationGeometryFirstAndLastEqual',body)
+					
+					//Syntactic validation - Validate Geometry - Two Consecutive Not Equal - TEST
+					echo 'Syntactic validation - Validate Geometry - Two Consecutive Not Equal - TEST'
+					validateTwoConsecutiveNotEqual = hacerhttprequest('http://3dcity-test.tecnalia.com/TecnaliaTesting/rest/Servicios/ValidationTwoConsecutiveEqual',body)
+					
+					//Syntactic validation - Validate Codetype - TEST
+					echo 'Syntactic validation - Validate Codetype - TEST'
+					validateCodeType = hacerhttprequest('http://3dcity-test.tecnalia.com/TecnaliaTesting/rest/Servicios/ValidateCodetype',body)
+					
+					//Code Metrics - Statistics  - TEST
+					echo 'Code Metrics - Statistics  - TEST'
+					citygmlStadistics = hacerhttprequest('http://3dcity-test.tecnalia.com/TecnaliaTesting/rest/Servicios/CityGMLStatistics',body)
+				}
+            }
+        }
+		stage('ACCEPTANCE STAGE - TEST'){
+			environment { 
+				createDB = ''
+				importCityGML = ''
+				deployWFS = ''
+				testWFS = ''
+				validateOrientation = ''
+				validateArea = ''
+			}
+            steps {
+				script {
+					//DEPLOY BINARIES - Create DB - TEST
+					echo 'DEPLOY BINARIES - Create DB - TEST'
+					body = cambiarCaracteresRaros(citygml)
+					body = "param1=" + commitid + "&param2=" + srs + "&param3=true"
+					createDB = hacerhttprequest('http://3dcity-test.tecnalia.com/TecnaliaTesting/rest/Servicios/CreateDB',body)
+					
+					//DEPLOY BINARIES - Import CityGML - TEST
+					echo 'DEPLOY BINARIES - Import CityGML - TEST'
+					body = cambiarCaracteresRaros(citygml)
+					body = "param1=" + body + "&param2=" + commitid + "&param3=true"
+					importCityGML = hacerhttprequest('http://3dcity-test.tecnalia.com/TecnaliaTesting/rest/Servicios/ImportCityGMLToDB',body)
+					
+					//DEPLOY BINARIES - Deploy WFS - TEST
+					echo 'DEPLOY BINARIES - Deploy WFS - TEST'
+					body = "param1=" + commitid + "&param2=" + srs + "&param3=true"
+					deployWFS = hacerhttprequest('http://3dcity-test.tecnalia.com/TecnaliaTesting/rest/Servicios/DeployWFS',body)
+					
+					//DEPLOY BINARIES - WFS Test - TEST
+					echo 'DEPLOY BINARIES - WFS Test - TEST'
+					body = "param1=" + commitid + "&param2=true"
+					testWFS = hacerhttprequest('http://3dcity-test.tecnalia.com/TecnaliaTesting/rest/Servicios/WFSTest',body)
+					
+					//USER REQUIREMENTS - Facadades With Orientation
+					echo 'USER REQUIREMENTS - Facadades With Orientation'
+					body = cambiarCaracteresRaros(citygml)
+					body = "param1=" + body
+					validateOrientation = hacerhttprequest('http://3dcity-test.tecnalia.com/TecnaliaTesting/rest/Servicios/ValidationUserAcceptanceOrientation',body)
+					
+					//USER REQUIREMENTS - Facadades With Area
+					echo 'USER REQUIREMENTS - Facadades With Area'
+					body = cambiarCaracteresRaros(citygml)
+					body = "param1=" + body
+					validateArea = hacerhttprequest('http://3dcity-test.tecnalia.com/TecnaliaTesting/rest/Servicios/ValidationUserAcceptanceArea',body)
+				}
+            }
+        }
+		stage('UAT STAGE'){
+			environment { 
+				createKML = ''
+				userInput = ''
+			}
+            steps {
+				script {
+					//DEPLOY BINARIES - Create KML - TEST
+					echo 'DEPLOY BINARIES - Create KML - TEST'
+					body = cambiarCaracteresRaros(citygml)
+					body = "param1=" + body + "&param2=" + commitid + "&param3=" + srs + "&param4=UATResultKML"
+					createKML = hacerhttprequest('http://3dcity-test.tecnalia.com/TecnaliaTesting/rest/Servicios/CreateKMLString',body)
+					
+					//CESIUM - TEST
+					echo 'CESIUM - TEST'
+					userInput = input(
+					 id: 'userInput', message: 'Is Model Valid?', parameters: [
+					 [$class: 'TextParameterDefinition', defaultValue: 'false', description: '3D Model Valid? true/false https://goo.gl/N0GoU5', name: 'cesium'],
+					]) 
+					echo ("Model Valid: "+userInput)
+					comprobarsiErrorUAT(userInput)
+				}
+            }
+        }
+		stage('PRODUCTION STAGE'){
+			environment { 
+				saveCityGMLFinal = ''
+			}
+            steps {
+				script {
+
+					//DEPLOY BINARIES - Create DB - PRODUCTION
+					echo 'DEPLOY BINARIES - Create DB - PRODUCTION'
+					body = cambiarCaracteresRaros(citygml)
+					body = "param1=" + commitid + "&param2=" + srs + "&param3=false"
+					createDB = hacerhttprequest('http://3dcity-test.tecnalia.com/TecnaliaTesting/rest/Servicios/CreateDB',body)
+					
+					//DEPLOY BINARIES - Import CityGML - PRODUCTION
+					echo 'DEPLOY BINARIES - Import CityGML - PRODUCTION'
+					body = cambiarCaracteresRaros(citygml)
+					body = "param1=" + body + "&param2=" + commitid + "&param3=false"
+					importCityGML = hacerhttprequest('http://3dcity-test.tecnalia.com/TecnaliaTesting/rest/Servicios/ImportCityGMLToDB',body)
+					
+					//DEPLOY BINARIES - Deploy WFS - PRODUCTION
+					echo 'DEPLOY BINARIES - Deploy WFS - PRODUCTION'
+					body = "param1=" + commitid + "&param2=" + srs + "&param3=false"
+					deployWFS = hacerhttprequest('http://3dcity-test.tecnalia.com/TecnaliaTesting/rest/Servicios/DeployWFS',body)
+					
+					//DEPLOY BINARIES - WFS Test - PRODUCTION
+					echo 'DEPLOY BINARIES - WFS Test - PRODUCTION'
+					body = "param1=" + commitid + "&param2=false"
+					testWFS = hacerhttprequest('http://3dcity-test.tecnalia.com/TecnaliaTesting/rest/Servicios/WFSTest',body)
+					
+					//DEPLOY BINARIES - SaveCityGMLFinal - PRODUCTION
+					echo 'DEPLOY BINARIES - SaveCityGMLFinal - PRODUCTION'
+					body = cambiarCaracteresRaros(citygml)
+					body = "param1=" + body + "&param2=" + commitid
+					saveCityGMLFinal = hacerhttprequest('http://3dcity-test.tecnalia.com/TecnaliaTesting/rest/Servicios/SaveCityGMLFinal',body)
+					echo saveCityGMLFinal
+				}
+            }
+        }
+    }
+}
+
+def hacerhttprequest(laUrl,elBody) {
+	def response = httpRequest consoleLogResponseBody: true, httpMode: 'POST', requestBody: elBody, url: laUrl, validResponseCodes: '100:399', passBuildParameters: false
+
+
+	//println('Status: '+response.status)
+	//println('Response: '+response.content)
+	comprobarsiError(response.content)
+	
+	return response.content
+}
+
+def hacerhttprequestGET(laUrl) {
+	def response = httpRequest consoleLogResponseBody: true, httpMode: 'GET', url: laUrl, validResponseCodes: '100:399', passBuildParameters: false
+	
+	return response.content
+}
+
+def comprobarsiError(texto) {
+    if(texto.contains('<ERROR>')) {
+		currentBuild.result = 'FAILURE'
+		throw err
+    }
+}
+
+def comprobarsiErrorUAT(texto) {
+    if(texto.contains('false')) {
+		currentBuild.result = 'FAILURE'
+		throw err
+    }
+}
+
+def cambiarCaracteresRaros(citygml) {
+	citygml = citygml.replaceAll("\\:", "%3A");
+	citygml = citygml.replaceAll("\\/", "%2F");
+	citygml = citygml.replaceAll(" ", "%20");
+	citygml = citygml.replaceAll("\\|", "%7c");
+	citygml = citygml.replaceAll("\\<", "%3C");
+	citygml = citygml.replaceAll("\\?", "%3F");
+	citygml = citygml.replaceAll("\\>", "%3E");
+	citygml = citygml.replaceAll("\\=", "%3D");
+	citygml = citygml.replaceAll("\\'", "%27");
+	return citygml
+}
